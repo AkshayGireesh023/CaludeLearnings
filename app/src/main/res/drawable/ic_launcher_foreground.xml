@@ -1,0 +1,8 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Three rising bars: spending brought under control, savings climbing. -->
+    <path android:fillColor="#FFF4C95D" android:pathData="M34,72h10v-14h-10z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M49,72h10v-24h-10z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M64,72h10v-36h-10z" />
+    <path android:fillColor="#FFF4C95D" android:pathData="M32,76h44v3h-44z" />
+</vector>
