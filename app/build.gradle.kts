@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -13,15 +15,34 @@ android {
         applicationId = "com.kharcha.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "2.0.0"
+        versionCode = 3
+        versionName = "2.0.1"
     }
+
+    // Sign with your own fixed key when keystore.properties exists (kept out of git), so every
+    // build can update the installed app. Without it, the standard debug key is used.
+    val keyProps = rootProject.file("keystore.properties").takeIf { it.exists() }?.let { f ->
+        Properties().apply { f.inputStream().use { load(it) } }
+    }
+    signingConfigs {
+        if (keyProps != null) {
+            create("kharcha") {
+                storeFile = rootProject.file(keyProps.getProperty("storeFile"))
+                storePassword = keyProps.getProperty("storePassword")
+                keyAlias = keyProps.getProperty("keyAlias")
+                keyPassword = keyProps.getProperty("keyPassword")
+            }
+        }
+    }
+    val signing = signingConfigs.findByName("kharcha") ?: signingConfigs.getByName("debug")
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Signed with the debug key so the APK installs directly (personal use / sideload).
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signing
+        }
+        debug {
+            signingConfig = signing
         }
     }
     compileOptions {
