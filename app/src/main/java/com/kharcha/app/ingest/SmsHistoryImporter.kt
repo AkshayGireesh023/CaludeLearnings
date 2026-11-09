@@ -6,6 +6,7 @@ import com.kharcha.app.data.Repository
 import com.kharcha.app.data.TxnSource
 import com.kharcha.app.parser.SmsParser
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.ZoneId
@@ -19,9 +20,36 @@ object SmsHistoryImporter {
         repo: Repository,
         months: Long = 6,
         onProgress: (Int, Int) -> Unit = { _, _ -> },
-    ): ImportResult = withContext(Dispatchers.IO) {
-        val since = LocalDate.now().minusMonths(months).withDayOfMonth(1)
-            .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    ): ImportResult = importSince(
+        context, repo,
+        LocalDate.now().minusMonths(months).withDayOfMonth(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+        onProgress,
+    ).also { repo.settings.update { it.copy(lastSmsImport = System.currentTimeMillis()) } }
+
+    /**
+     * Catches up on any SMS since the last sync. Covers phones that kill the live SMS receiver
+     * in the background (common on OnePlus / Xiaomi / Oppo). Duplicates are skipped by the repository.
+     */
+    suspend fun catchUp(context: Context, repo: Repository): ImportResult {
+        if (!hasSmsPermission(context)) return ImportResult(0, 0, 0)
+        val last = repo.settings.state.value.lastSync
+        val since = if (last == 0L) System.currentTimeMillis() - 3L * 24 * 3600 * 1000 else last - 2L * 3600 * 1000
+        return importSince(context, repo, since)
+    }
+
+    fun hasSmsPermission(context: Context) =
+        androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_SMS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    private val mutex = kotlinx.coroutines.sync.Mutex()
+
+    suspend fun importSince(
+        context: Context,
+        repo: Repository,
+        since: Long,
+        onProgress: (Int, Int) -> Unit = { _, _ -> },
+    ): ImportResult = mutex.withLock { withContext(Dispatchers.IO) {
+        val startedAt = System.currentTimeMillis()
         var scanned = 0
         var matched = 0
         var added = 0
@@ -47,7 +75,7 @@ object SmsHistoryImporter {
             }
             onProgress(total, total)
         }
-        repo.settings.update { it.copy(lastSmsImport = System.currentTimeMillis()) }
+        repo.settings.update { it.copy(lastSync = startedAt) }
         ImportResult(scanned, matched, added)
-    }
+    } }
 }

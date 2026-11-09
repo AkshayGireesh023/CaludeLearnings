@@ -70,6 +70,7 @@ fun PlanScreen(
     onDeleteAccount: (AccountEntity) -> Unit,
     onSaveGoal: (GoalEntity) -> Unit,
     onDeleteGoal: (GoalEntity) -> Unit,
+    live: Map<String, Double> = emptyMap(),
 ) {
     var dialog by remember { mutableStateOf<PlanDialog?>(null) }
     val spentByCat = report?.categories?.associate { it.category to it.amount }.orEmpty()
@@ -105,13 +106,19 @@ fun PlanScreen(
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Text(inr(a.balance), fontWeight = FontWeight.SemiBold)
+                        Column(horizontalAlignment = Alignment.End) {
+                            val l = live[a.key] ?: a.balance
+                            Text(inr(l), fontWeight = FontWeight.SemiBold)
+                            if (kotlin.math.abs(l - a.balance) > 0.5) {
+                                Text("bank said ${inr(a.balance)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
                 }
                 if (accounts.size > 1) {
                     Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
                         Text("Total", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                        Text(inr(accounts.sumOf { it.balance }), fontWeight = FontWeight.Bold)
+                        Text(inr(accounts.sumOf { live[it.key] ?: it.balance }), fontWeight = FontWeight.Bold)
                     }
                 }
             }

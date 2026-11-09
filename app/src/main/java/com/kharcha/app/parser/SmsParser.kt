@@ -45,8 +45,15 @@ object SmsParser {
     private val debitStrong = Regex("\\b(debited|debit(?!\\s*card)|spent|withdrawn|paid|sent|purchase|txn of|transferred to|dr\\.?)\\b", IC)
     private val creditStrong = Regex("\\b(credited|received|deposited|refund(?:ed)?|reversed|cr\\.?)\\b", IC)
 
+    private val balPrefix = "(?:avl\\.?|avail(?:able)?\\.?|clear|closing|total|a/c|acct|net)?\\s*\\bbal(?:ance)?\\.?(?:\\s+(?:in your a/c|in a/c|in account))?"
+    // "Avl Bal: Rs 1,234.50" / "Avl Bal as on 05-11 is INR 1,234"
     private val balanceRegex = Regex(
-        "(?:avl\\.?|avail(?:able)?\\.?|clear|closing|total|a/c|acct)?\\s*\\bbal(?:ance)?\\.?\\s*(?:is|:|-|of)?\\s*(?:rs\\.?|inr|₹)\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)",
+        "$balPrefix(?:\\s*(?:as on|on|as of)\\s+[0-9a-z/.:, -]{5,22}?)?[^0-9₹]{0,20}?(?:rs\\.?|inr|₹)\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)",
+        IC,
+    )
+    // "Avl Bal:12,345.00" — no currency, so demand a decimal amount to avoid reading a date.
+    private val balanceRegexBare = Regex(
+        "$balPrefix\\s*(?:is|:|-)?\\s*:?\\s*([0-9][0-9,]*\\.[0-9]{2})\\b",
         IC,
     )
     private val bareAmountAfterVerb = Regex("(?:debited|credited)\\s*(?:by|for|with|of)?\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)\\b", IC)
@@ -71,6 +78,17 @@ object SmsParser {
     private val toRegex = Regex("\\b(?:to|at|towards|trf to|paid to)\\s+(?:vpa\\s+|merchant\\s+)?([A-Za-z0-9 .&'@_-]{2,40}?)$stop", IC)
     private val fromRegex = Regex("\\b(?:from|by)\\s+(?:vpa\\s+)?([A-Za-z0-9 .&'@_-]{2,40}?)$stop", IC)
 
+    private val cardSpend = Regex("spent (?:on|using|via)? ?(?:your )?(?:[a-z ]+ )?(?:credit )?card|card (?:no\\.? )?[xX*]+\\d{3,4}.{0,40}\\b(?:at|on)\\b", IC)
+    private val cardBillPayment = Regex(
+        "payment (?:of [^.]{0,30})?(?:received|credited)?.{0,30}(?:towards|to|on) (?:your )?(?:[a-z ]{0,20})?credit card|credit card (?:bill|payment|dues)|cc bill|card bill|payment received on your card|towards your card",
+        IC,
+    )
+    private val selfTransferWords = Regex("\\b(self transfer|own account|to self|sweep|fd booked|fixed deposit booked|transfer to rd)\\b", IC)
+    private val bankWords = listOf("a/c", "acct", "account", "bank", "upi", "card", "neft", "imps", "rtgs", "atm")
+
+    private fun looksBankLike(sender: String, lower: String): Boolean =
+        bankFromSender(sender) != null || bankWords.count { lower.contains(it) } >= 2
+
     private val ownAccountWords = Regex("\\b(a/c|ac|acct|account|card|bank|your|you|xx\\d+)\\b", IC)
 
     fun isLikelyBankSender(sender: String): Boolean {
@@ -88,7 +106,7 @@ object SmsParser {
         val type = detectType(text) ?: return null
 
         // Balance first, so its number is not mistaken for the transaction amount.
-        val balanceMatch = balanceRegex.find(text)
+        val balanceMatch = balanceRegex.find(text) ?: balanceRegexBare.find(text)
         val balance = balanceMatch?.groupValues?.get(1)?.let(TextUtil::toAmount)
 
         val amount = TextUtil.currencyAmount.findAll(text)
@@ -97,12 +115,21 @@ object SmsParser {
             ?: bareAmountAfterVerb.find(text)?.groupValues?.get(1)?.let(TextUtil::toAmount)
             ?: return null
 
-        // Credit card "Avl Lmt" is not a bank balance.
-        val isCard = lower.contains("credit card") || Regex("\\bcard\\b", IC).containsMatchIn(text) && !lower.contains("debit card")
+        // A credit card spend ("spent on ... Card x1234", "Avl Lmt") has no bank balance.
+        val isCard = cardSpend.containsMatchIn(text) || lower.contains("avl lmt") || lower.contains("available limit") ||
+            (lower.contains("credit card") && type == TxnType.DEBIT && !cardBillPayment.containsMatchIn(lower))
 
         val account = (accountRegex.find(text) ?: accountRegexLoose.find(text))?.groupValues?.get(1)?.takeLast(4)
         val bank = bankFromSender(sender) ?: bankFromBody(lower)
         val ref = (refRegex.find(text) ?: upiPathRef.find(text))?.groupValues?.get(1)
+
+        // Merchant / telecom / shopping SMS ("Your order of Rs 499 is paid") duplicate the bank's own
+        // alert, so only accept known bank senders or messages that name an account, card or UPI reference.
+        if (bank == null && account == null && ref == null) return null
+        if (!looksBankLike(sender, lower) && account == null) return null
+
+        // Paying your own credit card bill or moving money between your own accounts is not spending.
+        val selfTransfer = cardBillPayment.containsMatchIn(lower) || selfTransferWords.containsMatchIn(lower)
 
         val rawMerchant = extractMerchant(text, type)
         val cleaned = TextUtil.cleanMerchant(rawMerchant)
@@ -117,6 +144,7 @@ object SmsParser {
             refNo = ref,
             isCard = isCard,
             isPersonVpa = cleaned?.second ?: false,
+            selfTransfer = selfTransfer,
             timestamp = timestamp,
             raw = body,
         )

@@ -19,6 +19,8 @@ class Repository(private val db: AppDatabase, val settings: SettingsStore) {
     fun observeMonths(from: YearMonth, to: YearMonth): Flow<List<TransactionEntity>> =
         txDao.observeBetween(monthRange(from).first, monthRange(to).second)
 
+    fun observeSince(ts: Long): Flow<List<TransactionEntity>> = txDao.observeBetween(ts, Long.MAX_VALUE)
+
     val accounts = db.accounts().observeAll()
     val budgets = db.budgets().observeAll()
     val goals = db.goals().observeAll()
@@ -48,7 +50,7 @@ class Repository(private val db: AppDatabase, val settings: SettingsStore) {
             }
 
         val merchant = p.merchant ?: if (p.type == TxnType.DEBIT) "Payment" else "Money received"
-        val category = resolveCategory(merchant, p)
+        val category = if (p.selfTransfer) Category.SELF_TRANSFER else resolveCategory(merchant, p)
         val entity = TransactionEntity(
             amount = p.amount,
             type = p.type,
@@ -61,9 +63,28 @@ class Repository(private val db: AppDatabase, val settings: SettingsStore) {
             refNo = p.refNo,
             dedupKey = dedupKey(p, source),
             rawText = p.raw,
+            excluded = p.selfTransfer,
         )
         val id = txDao.insert(entity)
-        return if (id > 0) entity.copy(id = id) else null
+        if (id <= 0) return null
+        val stored = entity.copy(id = id)
+        return if (markOwnTransfer(stored)) null else stored
+    }
+
+    /**
+     * Money leaving one of your accounts and the same amount landing in another of yours within
+     * 15 minutes is a transfer to yourself, not spending or income. Marks both sides.
+     */
+    private suspend fun markOwnTransfer(t: TransactionEntity): Boolean {
+        if (t.account == null || t.excluded) return false
+        val opposite = if (t.type == TxnType.DEBIT) TxnType.CREDIT else TxnType.DEBIT
+        val window = 15 * 60 * 1000L
+        val match = txDao.near(opposite, t.amount, t.timestamp - window, t.timestamp + window).firstOrNull {
+            !it.userEdited && !it.excluded && it.account != null && !sameAccount(it.account, t.account)
+        } ?: return false
+        txDao.update(match.copy(category = Category.SELF_TRANSFER, excluded = true))
+        txDao.update(t.copy(category = Category.SELF_TRANSFER, excluded = true))
+        return true
     }
 
     /** Live SMS and the history import see the same message with slightly different timestamps, so key on content. */
@@ -105,8 +126,11 @@ class Repository(private val db: AppDatabase, val settings: SettingsStore) {
 
     private suspend fun updateBalance(p: ParsedTxn, balance: Double) {
         val bank = p.bank ?: "Bank"
-        val key = "${bank}:${p.account ?: "main"}"
-        val existing = db.accounts().get(key)
+        // Banks print 3 or 4 trailing digits inconsistently (XX123 vs XX0123): treat suffix matches as one account.
+        val existing = db.accounts().all().firstOrNull { a ->
+            a.bank == bank && (a.last4 == p.account || (a.last4 != null && p.account != null && sameAccount(a.last4, p.account)))
+        }
+        val key = existing?.key ?: "${bank}:${p.account ?: "main"}"
         if (existing == null || existing.updatedAt <= p.timestamp) {
             db.accounts().upsert(
                 AccountEntity(key, bank, p.account, balance, p.timestamp, existing?.nickname ?: ""),
@@ -128,7 +152,7 @@ class Repository(private val db: AppDatabase, val settings: SettingsStore) {
 
     /** Updates a transaction; a category change is remembered for that merchant and applied to its other payments. */
     suspend fun update(t: TransactionEntity, applyToMerchant: Boolean) {
-        txDao.update(t)
+        txDao.update(t.copy(userEdited = true))
         if (applyToMerchant && t.type == TxnType.DEBIT) {
             val key = t.merchant.lowercase()
             db.merchantRules().upsert(MerchantRuleEntity(key, t.category))
@@ -152,6 +176,20 @@ class Repository(private val db: AppDatabase, val settings: SettingsStore) {
         return txDao.between(s, e).filter { it.isExpense && (category == null || it.category == category) }.sumOf { it.amount }
     }
 
+    /** Wipes SMS-derived rows you haven't edited so they can be re-read with the current parser. */
+    suspend fun clearForRescan() = txDao.clearUnedited()
+
+    suspend fun transactionsAfter(ts: Long) = txDao.after(ts)
+    suspend fun needingAiReview(since: Long, limit: Int) = txDao.needingAiReview(since, limit)
+    suspend fun byId(id: Long) = txDao.byId(id)
+    suspend fun saveRaw(t: TransactionEntity) = txDao.update(t)
+    suspend fun allTransactions() = txDao.all()
+    val latestTransaction = txDao.observeLatest()
+
+    /** Remembers a merchant's category without marking anything as edited by you (used by AI clean-up). */
+    suspend fun rememberMerchant(merchant: String, category: Category) =
+        db.merchantRules().upsert(MerchantRuleEntity(merchant.lowercase(), category))
+
     suspend fun clearTransactions() {
         txDao.clear()
         db.accounts().clear()
@@ -173,3 +211,4 @@ class Repository(private val db: AppDatabase, val settings: SettingsStore) {
         return sb.toString()
     }
 }
+

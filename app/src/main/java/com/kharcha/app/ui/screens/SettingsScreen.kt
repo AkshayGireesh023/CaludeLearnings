@@ -4,6 +4,7 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -57,6 +58,13 @@ fun SettingsScreen(
     onImport: (Long) -> Unit,
     onExport: suspend () -> Intent,
     onClearAll: () -> Unit,
+    onBack: () -> Unit = {},
+    rebuilding: Boolean = false,
+    onRebuild: () -> Unit = {},
+    cleanup: com.kharcha.app.ui.CleanupState = com.kharcha.app.ui.CleanupState(),
+    onCleanup: () -> Unit = {},
+    keyTest: com.kharcha.app.ui.AiTextState = com.kharcha.app.ui.AiTextState(),
+    onTestKey: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -65,9 +73,68 @@ fun SettingsScreen(
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     var editing by remember { mutableStateOf<String?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
+    val batteryOk = remember(perms) {
+        (context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager)
+            .isIgnoringBatteryOptimizations(context.packageName)
+    }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("Settings", style = MaterialTheme.typography.headlineMedium) }
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.IconButton(onClick = onBack) {
+                    androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                }
+                Text("Settings", style = MaterialTheme.typography.headlineMedium)
+            }
+        }
+
+        item {
+            SectionCard {
+                SectionTitle("✨ AI brain (Claude)")
+                Text(
+                    "Powers the daily brief, Ask, month reviews and transaction clean-up. Uses your own Anthropic API key " +
+                        "(console.anthropic.com → API keys), billed to your account. Kharcha sends Claude summaries and transaction " +
+                        "lines; clean-up also sends the SMS text with account and reference numbers masked.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SettingRow("API key", if (settings.aiReady) "sk-ant-…" + settings.anthropicKey.takeLast(4) else "Not set") { editing = "key" }
+                SettingRow("Model", com.kharcha.app.data.AI_MODELS.firstOrNull { it.first == settings.aiModel }?.second ?: settings.aiModel) { editing = "model" }
+                if (settings.aiReady) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(onClick = onTestKey, enabled = !keyTest.loading) { Text(if (keyTest.loading) "Testing…" else "Test connection") }
+                    }
+                    keyTest.text.takeIf { it.isNotBlank() }?.let { Text("✓ $it", color = Good, style = MaterialTheme.typography.bodySmall) }
+                    keyTest.error?.let { Text(it, color = Alert, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+        }
+
+        item {
+            SectionCard {
+                SectionTitle("Fix my data")
+                Text(
+                    "Wrong amounts, duplicates or missing payments? Re-scan reads your SMS again with the latest parser " +
+                        "(your edits, notes and manual entries are kept). AI clean-up has Claude re-check names, categories and fake entries.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(enabled = perms.sms && !rebuilding && !importState.running, onClick = onRebuild) {
+                        Text(if (rebuilding) "Re-scanning…" else "Re-scan 12 months")
+                    }
+                    Button(enabled = settings.aiReady && !cleanup.running, onClick = onCleanup) {
+                        Text(if (cleanup.running) "Cleaning… ${cleanup.reviewed}" else "AI clean-up")
+                    }
+                }
+                if (cleanup.done) {
+                    Text(
+                        if (cleanup.reviewed == 0) "Everything's already been checked." else "Claude checked ${cleanup.reviewed} transactions and fixed ${cleanup.fixed}.",
+                        color = Good, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+                cleanup.error?.let { Text(it, color = Alert, style = MaterialTheme.typography.bodySmall) }
+            }
+        }
 
         item {
             SectionCard {
@@ -90,6 +157,17 @@ fun SettingsScreen(
                 PermissionRow(
                     "Budget alerts", "Lets Kharcha warn you when you cross 80% / 100% of a budget.", perms.postNotifications,
                 ) { if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+                PermissionRow(
+                    "Background tracking", "Stops your phone from killing Kharcha, so payments log within minutes even when it's closed.",
+                    batteryOk,
+                ) {
+                    runCatching {
+                        context.startActivity(
+                            Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                                .setData(android.net.Uri.parse("package:" + context.packageName)),
+                        )
+                    }.onFailure { context.startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
                     Text("Send budget alerts", modifier = Modifier.weight(1f))
                     Switch(checked = settings.budgetAlerts, onCheckedChange = { v -> onUpdate { it.copy(budgetAlerts = v) } })
@@ -129,7 +207,7 @@ fun SettingsScreen(
             SectionCard {
                 SectionTitle("Your data")
                 Text(
-                    "$transactionCount transactions stored. Everything stays on this phone — no account, no cloud, no internet permission.",
+                    "$transactionCount transactions stored on this phone. No account, no cloud sync. The internet is used only to talk to Claude, and only if you add a key.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -148,6 +226,27 @@ fun SettingsScreen(
     }
 
     when (editing) {
+        "key" -> TextDialog("Claude API key", settings.anthropicKey, onDismiss = { editing = null }) { v ->
+            onUpdate { it.copy(anthropicKey = v.trim(), briefDay = "") }; editing = null
+        }
+        "model" -> AlertDialog(
+            onDismissRequest = { editing = null },
+            title = { Text("Claude model") },
+            text = {
+                Column {
+                    com.kharcha.app.data.AI_MODELS.forEach { (id, label) ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { onUpdate { it.copy(aiModel = id) }; editing = null }.padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.material3.RadioButton(selected = settings.aiModel == id, onClick = { onUpdate { it.copy(aiModel = id) }; editing = null })
+                            Text(label)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { editing = null }) { Text("Close") } },
+        )
         "name" -> TextDialog("Your name", settings.name, onDismiss = { editing = null }) { v -> onUpdate { it.copy(name = v) }; editing = null }
         "income" -> AmountDialog("Monthly take-home income", settings.monthlyIncome, hint = "Used for savings rate and the 50/30/20 check.",
             onDismiss = { editing = null }) { v -> onUpdate { it.copy(monthlyIncome = v) }; editing = null }

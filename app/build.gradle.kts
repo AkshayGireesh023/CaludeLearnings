@@ -13,8 +13,8 @@ android {
         applicationId = "com.kharcha.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "2.0.0"
     }
 
     buildTypes {
@@ -34,6 +34,32 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*", "META-INF/INDEX.LIST",
+                "META-INF/*.kotlin_module", "META-INF/versions/9/previous-compilation-data.bin",
+            )
+        }
+    }
+}
+
+// Room schema JSONs for the migration test (debug builds only; not shipped in release).
+android.sourceSets["debug"].assets.srcDir("$projectDir/schemas")
+android.testOptions.unitTests.isIncludeAndroidResources = true
+
+// Robolectric's Android runtime, fetched by Gradle so tests also work behind proxies / offline.
+val robolectricRuntime: Configuration by configurations.creating
+dependencies { robolectricRuntime("org.robolectric:android-all-instrumented:14-robolectric-10818077-i6") }
+val robolectricDir = layout.buildDirectory.dir("robolectric-jars")
+val copyRobolectric by tasks.registering(Copy::class) {
+    from(robolectricRuntime)
+    into(robolectricDir)
+}
+tasks.withType<Test>().configureEach {
+    dependsOn(copyRobolectric)
+    systemProperty("robolectric.offline", "true")
+    systemProperty("robolectric.dependency.dir", robolectricDir.get().asFile.absolutePath)
 }
 
 ksp {
@@ -59,6 +85,15 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // Claude: the AI brain (chat, daily brief, transaction clean-up).
+    implementation("com.anthropic:anthropic-java:3.6.0")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.test:core-ktx:1.6.1")
+    testImplementation("androidx.room:room-testing:2.6.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

@@ -64,3 +64,24 @@ class InsightsEngineTest {
         assertEquals("₹1,234.50", Money.inr(1234.5, decimals = true))
     }
 }
+
+class LiveBalanceTest {
+    @Test fun rollsBalanceForwardFromLastConfirmed() {
+        val acc = com.kharcha.app.data.AccountEntity("HDFC Bank:1234", "HDFC Bank", "1234", 10000.0, 1000L)
+        fun t(ts: Long, amt: Double, type: TxnType, account: String?) = TransactionEntity(
+            amount = amt, type = type, merchant = "x", category = Category.OTHERS, source = TxnSource.SMS,
+            account = account, bank = "HDFC Bank", timestamp = ts, dedupKey = "k$ts",
+        )
+        val live = com.kharcha.app.insights.LiveBalance.compute(
+            listOf(acc),
+            listOf(
+                t(500L, 999.0, TxnType.DEBIT, "1234"),   // before confirmation: ignored
+                t(2000L, 250.0, TxnType.DEBIT, "1234"),
+                t(3000L, 1000.0, TxnType.CREDIT, "234"), // bank printed 3 digits
+                t(4000L, 70.0, TxnType.DEBIT, "9999"),   // other account
+            ),
+        ).single()
+        assertEquals(10750.0, live.live, 0.001)
+        assertEquals(2, live.pendingCount)
+    }
+}

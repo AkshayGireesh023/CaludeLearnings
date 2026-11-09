@@ -36,7 +36,14 @@ import java.time.YearMonth
 import kotlin.math.roundToInt
 
 @Composable
-fun InsightsScreen(month: YearMonth, report: MonthReport?, onShiftMonth: (Long) -> Unit) {
+fun InsightsScreen(
+    month: YearMonth,
+    report: MonthReport?,
+    onShiftMonth: (Long) -> Unit,
+    review: com.kharcha.app.ui.AiTextState = com.kharcha.app.ui.AiTextState(),
+    aiReady: Boolean = false,
+    onRunReview: () -> Unit = {},
+) {
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -49,6 +56,40 @@ fun InsightsScreen(month: YearMonth, report: MonthReport?, onShiftMonth: (Long) 
         if (report == null) {
             item { EmptyState("Crunching numbers…", "") }
             return@LazyColumn
+        }
+
+        item {
+            SectionCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("✨", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("AI month review", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            if (aiReady) "Claude reads every transaction and writes your plan." else "Add a Claude API key in Settings to unlock.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                when {
+                    review.loading -> {
+                        Spacer(Modifier.height(10.dp))
+                        androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Text("Claude is going through your month…", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+                    }
+                    review.text.isNotBlank() -> {
+                        Spacer(Modifier.height(10.dp))
+                        com.kharcha.app.ui.components.MarkdownText(review.text)
+                        androidx.compose.material3.TextButton(onClick = onRunReview) { Text("Regenerate") }
+                    }
+                    else -> {
+                        review.error?.let { Text(it, color = Alert, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp)) }
+                        androidx.compose.material3.Button(onClick = onRunReview, enabled = aiReady, modifier = Modifier.padding(top = 8.dp)) {
+                            Text("Review my month")
+                        }
+                    }
+                }
+            }
         }
 
         val savable = report.insights.sumOf { it.potentialSaving }

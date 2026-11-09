@@ -8,6 +8,7 @@ import com.kharcha.app.parser.SmsParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SmsParserTest {
@@ -131,5 +132,35 @@ class SmsParserTest {
         assertEquals(Category.GROCERIES, Categorizer.keywordCategory("Swiggy Instamart"))
         assertNull(Categorizer.keywordCategory("Motorola"))
         assertEquals(Category.TRANSPORT, Categorizer.keywordCategory("OLA cabs"))
+    }
+
+    @Test fun balanceWithoutCurrencySymbol() {
+        val t = p("VM-HDFCBK", "Rs.250.00 debited from a/c **1234 on 05-11-24 to VPA swiggy@icici(UPI Ref No 431012345690). Avl Bal:12,345.67")!!
+        assertEquals(250.0, t.amount, 0.001)
+        assertEquals(12345.67, t.balance!!, 0.001)
+    }
+
+    @Test fun balanceAsOnDateIsNotMisread() {
+        val t = p("VM-SBIINB", "Your A/c X4321 debited by Rs 500 on 05Nov24 trf to Amit Refno 431012345691. Avl Bal as on 05-11-24 is Rs 9,876.00")!!
+        assertEquals(9876.0, t.balance!!, 0.001)
+    }
+
+    @Test fun footerMentioningCardKeepsBalance() {
+        val t = p("VM-AXISBK", "INR 300.00 debited from A/c no. XX9876 to ZEPTO. Avl Bal INR 4,000.00. Never share card details or OTP.")!!
+        assertEquals(4000.0, t.balance!!, 0.001)
+    }
+
+    @Test fun merchantSmsWithoutAccountIsIgnored() {
+        assertNull(p("AX-AMAZON", "Payment of Rs 499 received for your order 404-123. Paid via UPI."))
+        assertNull(p("JM-JIOINF", "Recharge of Rs 299 successful. Amount paid Rs 299. Validity 28 days."))
+        assertNull(p("VK-SWIGGY", "Rs 350 paid for your Swiggy order #12345. Enjoy your meal!"))
+    }
+
+    @Test fun creditCardBillPaymentIsSelfTransfer() {
+        val debit = p("VM-HDFCBK", "Rs 15,000.00 debited from A/c XX1234 towards your HDFC Bank Credit Card bill payment. Avl Bal Rs 20,000.00")!!
+        assertTrue(debit.selfTransfer)
+        assertEquals(20000.0, debit.balance!!, 0.001)
+        val credit = p("VM-HDFCBK", "Payment of Rs 15,000 received towards your credit card ending 5678. Thank you.")!!
+        assertTrue(credit.selfTransfer)
     }
 }

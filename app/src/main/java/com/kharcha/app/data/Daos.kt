@@ -46,6 +46,22 @@ interface TransactionDao {
 
     @Query("DELETE FROM transactions")
     suspend fun clear()
+
+    /** Removes SMS-derived rows you never touched, so a re-scan can rebuild them with the improved parser. */
+    @Query("DELETE FROM transactions WHERE source != 'MANUAL' AND userEdited = 0")
+    suspend fun clearUnedited()
+
+    @Query("SELECT * FROM transactions WHERE timestamp > :after AND excluded = 0 ORDER BY timestamp")
+    suspend fun after(after: Long): List<TransactionEntity>
+
+    @Query("SELECT * FROM transactions WHERE userEdited = 0 AND aiChecked = 0 AND source != 'MANUAL' AND timestamp >= :since ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun needingAiReview(since: Long, limit: Int): List<TransactionEntity>
+
+    @Query("SELECT * FROM transactions WHERE id = :id")
+    suspend fun byId(id: Long): TransactionEntity?
+
+    @Query("SELECT * FROM transactions ORDER BY timestamp DESC LIMIT 1")
+    fun observeLatest(): Flow<TransactionEntity?>
 }
 
 @Dao
@@ -55,6 +71,9 @@ interface AccountDao {
 
     @Query("SELECT * FROM accounts WHERE `key` = :key")
     suspend fun get(key: String): AccountEntity?
+
+    @Query("SELECT * FROM accounts")
+    suspend fun all(): List<AccountEntity>
 
     @Upsert
     suspend fun upsert(a: AccountEntity)

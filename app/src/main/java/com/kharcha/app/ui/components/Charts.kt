@@ -32,6 +32,7 @@ import java.util.Locale
 fun SpendDonut(categories: List<CategorySpend>, total: Double, modifier: Modifier = Modifier, size: Dp = 160.dp) {
     val track = MaterialTheme.colorScheme.surfaceVariant
     val slices = categories.filter { it.amount > 0 }
+    val grow = rememberEntrance(slices.size)
     Box(modifier.size(size), contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(size)) {
             val stroke = this.size.minDimension * 0.14f
@@ -44,7 +45,7 @@ fun SpendDonut(categories: List<CategorySpend>, total: Double, modifier: Modifie
             var start = -90f
             val gap = if (slices.size > 1) 2f else 0f
             slices.forEach { s ->
-                val sweep = (s.amount / total * 360f).toFloat()
+                val sweep = (s.amount / total * 360f).toFloat() * grow
                 drawArc(
                     s.category.colour, start + gap / 2, (sweep - gap).coerceAtLeast(0.5f), false,
                     Offset(inset, inset), arcSize, style = Stroke(stroke, cap = StrokeCap.Butt),
@@ -54,7 +55,7 @@ fun SpendDonut(categories: List<CategorySpend>, total: Double, modifier: Modifie
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("spent", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(inr(total), style = MaterialTheme.typography.titleLarge)
+            AnimatedMoney(total, MaterialTheme.typography.titleLarge)
         }
     }
 }
@@ -62,15 +63,16 @@ fun SpendDonut(categories: List<CategorySpend>, total: Double, modifier: Modifie
 /** Discipline score ring, 0-100. */
 @Composable
 fun ScoreRing(score: Int, modifier: Modifier = Modifier, size: Dp = 84.dp, color: Color, track: Color) {
+    val grow = rememberEntrance(score)
     Box(modifier.size(size), contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(size)) {
             val stroke = this.size.minDimension * 0.11f
             val inset = stroke / 2
             val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
             drawArc(track, 135f, 270f, false, Offset(inset, inset), arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
-            drawArc(color, 135f, 270f * score / 100f, false, Offset(inset, inset), arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
+            drawArc(color, 135f, 270f * score / 100f * grow, false, Offset(inset, inset), arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
         }
-        Text("$score", style = MaterialTheme.typography.headlineSmall, color = color)
+        Text("${(score * grow).toInt()}", style = MaterialTheme.typography.headlineSmall, color = color)
     }
 }
 
@@ -82,12 +84,13 @@ fun DailyBars(daily: DoubleArray, dailyPace: Double, daysElapsed: Int, modifier:
     val future = MaterialTheme.colorScheme.surfaceVariant
     val line = MaterialTheme.colorScheme.secondary
     val max = maxOf(daily.maxOrNull() ?: 0.0, dailyPace * 1.2, 1.0)
+    val grow = rememberEntrance(daysElapsed)
     Canvas(modifier.fillMaxWidth().height(110.dp)) {
         val n = daily.size
         val slot = size.width / n
         val w = slot * 0.62f
         daily.forEachIndexed { i, v ->
-            val h = if (i >= daysElapsed) size.height * 0.04f else (v / max * size.height).toFloat().coerceAtLeast(2f)
+            val h = if (i >= daysElapsed) size.height * 0.04f else (v / max * size.height * grow).toFloat().coerceAtLeast(2f)
             val c = when {
                 i >= daysElapsed -> future
                 dailyPace > 0 && v > dailyPace -> over
@@ -110,12 +113,13 @@ fun TrendBars(trend: List<Pair<YearMonth, Double>>, budget: Double, modifier: Mo
     val over = MaterialTheme.colorScheme.error
     val line = MaterialTheme.colorScheme.secondary
     val max = maxOf(trend.maxOfOrNull { it.second } ?: 0.0, budget, 1.0) * 1.1
+    val grow = rememberEntrance(trend.lastOrNull()?.first)
     Column(modifier.fillMaxWidth()) {
         Canvas(Modifier.fillMaxWidth().height(120.dp)) {
             val slot = size.width / trend.size
             val w = slot * 0.5f
             trend.forEachIndexed { i, (_, v) ->
-                val h = (v / max * size.height).toFloat().coerceAtLeast(3f)
+                val h = (v / max * size.height * grow).toFloat().coerceAtLeast(3f)
                 val c = when {
                     budget > 0 && v > budget -> over
                     i == trend.lastIndex -> current
@@ -147,4 +151,24 @@ fun compact(v: Double): String = when {
     v >= 1_00_000 -> "₹%.1fL".format(v / 1_00_000)
     v >= 1_000 -> "₹%.1fk".format(v / 1_000)
     else -> "₹${v.toInt()}"
+}
+
+/** Progress ring for "today vs safe-to-spend". Turns red when today runs over. */
+@Composable
+fun TodayRing(spent: Double, limit: Double, modifier: Modifier = Modifier, size: Dp = 76.dp) {
+    val track = MaterialTheme.colorScheme.surfaceVariant
+    val ok = MaterialTheme.colorScheme.primary
+    val over = MaterialTheme.colorScheme.error
+    val pct = if (limit > 0) (spent / limit).toFloat() else 0f
+    val grow = rememberEntrance(spent)
+    Box(modifier.size(size), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(size)) {
+            val stroke = this.size.minDimension * 0.12f
+            val inset = stroke / 2
+            val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
+            drawArc(track, -90f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
+            drawArc(if (pct > 1f) over else ok, -90f, 360f * pct.coerceAtMost(1f) * grow, false, Offset(inset, inset), arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
+        }
+        Text(if (limit > 0) "${(pct * 100).toInt()}%" else "—", style = MaterialTheme.typography.titleSmall, color = if (pct > 1f) over else MaterialTheme.colorScheme.onSurface)
+    }
 }

@@ -173,7 +173,8 @@ fun TransactionRow(t: TransactionEntity, onClick: () -> Unit) {
                 add(t.category.label)
                 add(time)
                 if (t.source == TxnSource.MANUAL) add("manual")
-                if (t.excluded) add("excluded")
+                if (t.excluded) add("not counted")
+                if (t.aiChecked) add("✨ AI-checked")
             }.joinToString(" · ")
             Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (t.note.isNotBlank()) {

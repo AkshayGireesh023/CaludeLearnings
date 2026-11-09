@@ -72,6 +72,9 @@ data class MonthReport(
     val subscriptions: List<Subscription>,
     val insights: List<Insight>,
     val discipline: DisciplineScore,
+    val todaySpent: Double = 0.0,
+    /** Consecutive days (ending today) spent within the daily budget pace. */
+    val streak: Int = 0,
 ) {
     val saved: Double get() = income - spent
     val isCurrentMonth: Boolean get() = daysElapsed < daysInMonth
@@ -153,12 +156,21 @@ object InsightsEngine {
             savingsRate, noSpendDays, daysElapsed, daysInMonth, subscriptions, lastMonthSpent, invested, zone,
         )
 
+        val pace = if (budget > 0) budget / daysInMonth else 0.0
+        val todaySpent = if (month == YearMonth.from(today) && daysElapsed > 0) daily[daysElapsed - 1] else 0.0
+        var streak = 0
+        if (pace > 0) {
+            var i = daysElapsed - 1
+            while (i >= 0 && daily[i] <= pace) { streak++; i-- }
+        }
+
         return MonthReport(
             month = month, income = income, spent = spent, invested = invested, lastMonthSpent = lastMonthSpent,
             budget = budget, projectedSpend = projected, safeToSpendToday = safeToSpend, daysElapsed = daysElapsed,
             daysInMonth = daysInMonth, noSpendDays = noSpendDays, savingsRate = savingsRate, needs = needs, wants = wants,
             categories = categories, topMerchants = topMerchants, dailySpend = daily, monthlyTrend = trend,
             subscriptions = subscriptions, insights = insights, discipline = discipline,
+            todaySpent = todaySpent, streak = streak,
         )
     }
 

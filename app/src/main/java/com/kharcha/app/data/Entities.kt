@@ -1,5 +1,6 @@
 package com.kharcha.app.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -24,6 +25,10 @@ data class TransactionEntity(
     val rawText: String = "",
     /** Excluded transactions (e.g. moving money between your own accounts) are ignored in totals. */
     val excluded: Boolean = false,
+    /** Set once you edit it, so re-scans and AI clean-up never overwrite your changes. */
+    @ColumnInfo(defaultValue = "0") val userEdited: Boolean = false,
+    /** Set once Claude has reviewed this transaction. */
+    @ColumnInfo(defaultValue = "0") val aiChecked: Boolean = false,
 )
 
 val TransactionEntity.isExpense get() = type == TxnType.DEBIT && !excluded && category.isSpending
@@ -63,3 +68,9 @@ data class MerchantRuleEntity(
     @PrimaryKey val merchantKey: String,
     val category: Category,
 )
+
+/** "123" and "0123" (or "**1234" vs "1234") are the same account when one is a suffix of the other. */
+fun sameAccount(a: String, b: String): Boolean {
+    if (a.length < 3 || b.length < 3) return a == b
+    return a.endsWith(b) || b.endsWith(a)
+}

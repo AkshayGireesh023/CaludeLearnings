@@ -23,6 +23,7 @@ enum class Category(val label: String, val emoji: String, val bucket: Bucket, va
     PERSONAL_CARE("Personal Care", "💇", Bucket.WANT, 0xFFF06292),
     TRANSFER("Sent to People", "👥", Bucket.TRANSFER, 0xFF9E9E9E),
     CASH("Cash Withdrawal", "💵", Bucket.OTHER, 0xFF8BC34A),
+    SELF_TRANSFER("Own accounts / Card bill", "🔁", Bucket.OTHER, 0xFF90A4AE),
     INVESTMENT("Investments & Savings", "📈", Bucket.SAVING, 0xFF00897B),
     OTHERS("Others", "🧾", Bucket.OTHER, 0xFFBDBDBD),
     INCOME("Salary & Income", "💰", Bucket.INCOME, 0xFF43A047),

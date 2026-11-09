@@ -13,6 +13,8 @@ data class ParsedTxn(
     val refNo: String? = null,
     val isCard: Boolean = false,
     val isPersonVpa: Boolean = false,
+    /** Credit card bill payment or a transfer between your own accounts: not real spending. */
+    val selfTransfer: Boolean = false,
     val timestamp: Long,
     val raw: String,
 )

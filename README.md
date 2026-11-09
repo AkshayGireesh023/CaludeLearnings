@@ -18,6 +18,24 @@ expense list, and tells you where you're overspending and where you can save.
 | **Budget alerts** | Notification the moment a payment pushes a budget past 80% or 100%. |
 | **Learns your categories** | Re-categorise a merchant once and every future payment there is filed the same way. |
 
+## v2: the AI brain + accuracy overhaul
+
+| | |
+|---|---|
+| **Ask Kharcha (Claude)** | Chat tab: ask anything about your money — "where am I overspending?", "can I afford a ₹15,000 phone?" — answered from your real transactions, streamed live. |
+| **Daily AI brief** | Two-line brief on Home each day: how you're doing and the one move to make today. |
+| **AI month review** | Claude writes a scorecard, the leaks, and a 3-rule plan for next month (Insights tab). |
+| **AI clean-up** | Claude re-reads parsed transactions (SMS masked first) to fix merchant names, categories, and drop fake entries. |
+| **Live balance** | The last bank-reported balance is rolled forward with every later debit/credit, so it stays current even when UPI alerts don't include the balance. |
+| **Always in sync** | Catches up on SMS every time you open the app, on pull-to-refresh, and every 15 minutes in the background — even on phones that kill background apps. |
+| **Accuracy fixes** | Balance read without "Rs", merchant/telecom SMS no longer double-counted, credit-card bill payments and transfers between your own accounts excluded, 3- vs 4-digit account numbers matched. Old data is re-read automatically once after updating. |
+| **Livelier UI** | Animated balances and charts, today's spend ring, streaks, instant "payment logged" pop-ups. |
+
+### Switching on the AI
+
+Settings (gear on Home) → **AI brain** → paste an Anthropic API key from console.anthropic.com. It's billed to your
+Anthropic account. Default model is Claude Opus 5.5; Sonnet 5.5 and Haiku 5.5 are cheaper options.
+
 ## Install it
 
 1. Open the repository's **Releases** page on your phone → **Kharcha (latest build)** → download `Kharcha.apk`.
@@ -31,8 +49,9 @@ expense list, and tells you where you're overspending and where you can save.
 
 ## Privacy
 
-Everything is stored on your phone in a local database. The app has **no internet permission**,
-so your financial data physically cannot leave the device.
+Everything is stored on your phone in a local database — no account, no cloud sync. The internet is used only
+to call Claude, and only after you add your own API key. Claude gets summaries and transaction lines; the AI
+clean-up also sends SMS text with account numbers, UPI references and phone numbers masked first.
 
 ## Why SMS and not PhonePe directly?
 
